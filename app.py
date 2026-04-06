@@ -29,26 +29,26 @@ f3_perc = 100.0 - f1_perc - f2_perc
 
 st.sidebar.metric(label="Ethanol (F3) Auto-Calculated", value=f"{f3_perc:.1f} %")
 
-# Predict based on user input
+# Predict based on user input and NORMALIZE by 3 kW
 user_X = np.array([[f1_perc/100.0, f2_perc/100.0, f3_perc/100.0]])
-pred_co = np.exp(champion_co.predict(user_X)[0])
-pred_nox = np.exp(champion_nox.predict(user_X)[0])
+pred_co_norm = np.exp(champion_co.predict(user_X)[0]) / 3.0
+pred_nox_norm = np.exp(champion_nox.predict(user_X)[0]) / 3.0
 
 st.sidebar.markdown("---")
-st.sidebar.header("📊 Real-Time Predictions")
-st.sidebar.metric(label="Predicted CO", value=f"{pred_co:.1f} ppm", delta="Normalized to 3kW")
-st.sidebar.metric(label="Predicted NOx", value=f"{pred_nox:.2f} ppm", delta="Normalized to 3kW", delta_color="inverse")
+st.sidebar.header("📊 Real-Time Normalized Emissions")
+st.sidebar.metric(label="Energy-Specific CO", value=f"{pred_co_norm:.2f} ppm/kW")
+st.sidebar.metric(label="Energy-Specific NOx", value=f"{pred_nox_norm:.3f} ppm/kW", delta_color="inverse")
 
 # 4. Main Dashboard Area
 st.title("Triple-Blend Combustor Optimization")
-st.markdown("Explore the thermodynamic response surfaces and multi-objective optimization for Biodiesel, Jet A-1, and Ethanol blends.")
+st.markdown("Explore the thermodynamic response surfaces and multi-objective optimization for Biodiesel, Jet A-1, and Ethanol blends. **All emissions are normalized to the 3 kW combustor load (ppm/kW).**")
 
 tab1, tab2 = st.tabs(["🗺️ Interactive Response Surfaces", "📈 Multi-Objective Optimization"])
 
-# 5. Generate High-Res Grid Data (Cached for speed)
+# 5. Generate High-Res Grid Data (Cached for speed, Normalized)
 @st.cache_data
 def generate_grid_data():
-    resolution = 80 # Slightly lower resolution for web speed
+    resolution = 80 # Web-optimized resolution
     grid = []
     for i in np.linspace(0, 1, resolution):
         for j in np.linspace(0, 1 - i, resolution):
@@ -57,15 +57,16 @@ def generate_grid_data():
                 grid.append([i, j, k])
     X_grid = np.array(grid)
     
-    co_preds = np.exp(champion_co.predict(X_grid))
-    nox_preds = np.exp(champion_nox.predict(X_grid))
+    # Predict and directly normalize by 3 kW
+    co_preds_norm = np.exp(champion_co.predict(X_grid)) / 3.0
+    nox_preds_norm = np.exp(champion_nox.predict(X_grid)) / 3.0
     
     df = pd.DataFrame({
         'Biodiesel (F1)': X_grid[:, 0],
         'Jet A-1 (F2)': X_grid[:, 1],
         'Ethanol (F3)': X_grid[:, 2],
-        'CO (ppm)': co_preds,
-        'NOx (ppm)': nox_preds
+        'CO (ppm/kW)': co_preds_norm,
+        'NOx (ppm/kW)': nox_preds_norm
     })
     return df
 
@@ -81,21 +82,30 @@ with tab1:
             color=target, color_continuous_scale=color_scale, title=title
         )
         fig.update_traces(marker=dict(size=8, symbol='hexagon', line=dict(width=0)))
-        fig.update_layout(ternary=dict(sum=1), height=500, margin=dict(l=20, r=20, t=50, b=20))
+        fig.update_layout(
+            ternary=dict(
+                sum=1,
+                aaxis_title="Biodiesel",
+                baxis_title="Jet A-1",
+                caxis_title="Ethanol"
+            ), 
+            height=500, 
+            margin=dict(l=20, r=20, t=50, b=20)
+        )
         return fig
 
     with col1:
-        st.plotly_chart(plot_ternary(df_grid, 'CO (ppm)', 'Carbon Monoxide Map', 'Viridis'), use_container_width=True)
+        st.plotly_chart(plot_ternary(df_grid, 'CO (ppm/kW)', 'Normalized CO Map', 'Viridis'), use_container_width=True)
     with col2:
-        st.plotly_chart(plot_ternary(df_grid, 'NOx (ppm)', 'Nitrogen Oxides Map', 'Inferno'), use_container_width=True)
+        st.plotly_chart(plot_ternary(df_grid, 'NOx (ppm/kW)', 'Normalized NOx Map', 'Inferno'), use_container_width=True)
 
 # 7. Tab 2: The Pareto Front
 with tab2:
-    st.subheader("CO vs. NOx Trade-off (Pareto Front)")
-    st.markdown("This scatter plot maps 5,000 virtual fuel blends, demonstrating the inverse relationship between complete combustion (low CO) and Zeldovich thermal pathways (high NOx).")
+    st.subheader("CO vs. NOx Trade-off (Energy-Specific Pareto Front)")
+    st.markdown("This scatter plot maps 5,000 virtual fuel blends, demonstrating the inverse relationship between complete combustion (low CO) and Zeldovich thermal pathways (high NOx) on a per-kilowatt basis.")
     
     fig_pareto = px.scatter(
-        df_grid, x='NOx (ppm)', y='CO (ppm)', color='CO (ppm)', 
+        df_grid, x='NOx (ppm/kW)', y='CO (ppm/kW)', color='CO (ppm/kW)', 
         hover_data=['Biodiesel (F1)', 'Jet A-1 (F2)', 'Ethanol (F3)'],
         color_continuous_scale='plasma'
     )
